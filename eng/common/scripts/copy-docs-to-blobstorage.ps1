@@ -8,7 +8,7 @@ param (
   $ExitOnError=1,
   $UploadLatest=1,
   $PublicArtifactLocation = "",
-  $RepoReplaceRegex = "(https://github.com/.*/(?:blob|tree)/)$(DefaultBranch)"
+  $RepoReplaceRegex = ""
 )
 
 . (Join-Path $PSScriptRoot common.ps1)
@@ -204,6 +204,10 @@ function Upload-Blobs
         foreach ($htmlFile in (Get-ChildItem $DocDir -include *.html -r)) 
         {
             $fileContent = Get-Content -Path $htmlFile -Raw
+            if (!$RepoReplaceRegex) {
+                $defaultBranch = (git remote show origin | Out-String) -replace "(?ms).*HEAD branch: (\w+).*", '$1'
+                $RepoReplaceRegex = "(https://github.com/.*/(?:blob|tree)/)$defaultBranch"
+            }
             $updatedFileContent = $fileContent -replace $RepoReplaceRegex, "`${1}$ReleaseTag"
             if ($updatedFileContent -ne $fileContent) {
                 Set-Content -Path $htmlFile -Value $updatedFileContent -NoNewLine
