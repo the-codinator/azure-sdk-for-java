@@ -324,9 +324,12 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
             return;
         }
 
-        Operators.addCap(REQUESTED, this, request);
-
         final AmqpReceiveLink link = currentLink;
+        final String linkName = link != null ? link.getLinkName() : "N/A";
+        final long requestedBefore = Operators.addCap(REQUESTED, this, request);
+
+        logger.verbose("linkName[{}] requested[{}] requestedBefore[{}]", linkName, request, requestedBefore);
+
         if (link != null && !linkCreditsAdded.getAndSet(true)) {
             int credits = getCreditsToAdd();
             logger.verbose("Link credits not yet added. Adding: {}", credits);
@@ -414,6 +417,9 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
             return;
         }
 
+        final AmqpReceiveLink link = currentLink;
+        final String linkName = link != null ? link.getLinkName() : "N/A";
+
         long numberRequested = requested;
         boolean isEmpty = messageQueue.isEmpty();
         while (numberRequested != 0L && !isEmpty) {
@@ -452,6 +458,9 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
 
             if (requested != Long.MAX_VALUE) {
                 numberRequested = REQUESTED.addAndGet(this, -numberEmitted);
+
+                logger.verbose("linkName[{}] numberEmitted[{}] numberRequested[{}]", linkName, numberEmitted,
+                    numberRequested);
             }
         }
     }
@@ -478,10 +487,15 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
 
     private int getCreditsToAdd() {
         final CoreSubscriber<? super Message> subscriber = downstream.get();
-        final long r = requested;
-        if (subscriber == null || r == 0) {
-            logger.verbose("Not adding credits. No downstream subscribers or items requested.");
+        final long r = REQUESTED.get(this);
+        if (subscriber == null) {
+            logger.verbose("Not adding credits. No downstream subscribers.");
             linkCreditsAdded.set(false);
+            return 0;
+        }
+
+        if (r == 0) {
+            logger.verbose("Not adding credits. No items requested.");
             return 0;
         }
 
