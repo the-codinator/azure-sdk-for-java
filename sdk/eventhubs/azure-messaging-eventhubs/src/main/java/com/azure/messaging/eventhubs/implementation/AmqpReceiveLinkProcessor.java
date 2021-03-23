@@ -19,7 +19,6 @@ import reactor.core.Exceptions;
 import reactor.core.publisher.FluxProcessor;
 import reactor.core.publisher.Operators;
 
-import java.time.Duration;
 import java.util.Deque;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -44,7 +43,6 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
 
     private final int prefetch;
     private final Disposable parentConnection;
-    private final Duration timeout;
 
     private volatile Throwable lastError;
     private volatile boolean isCancelled;
@@ -72,7 +70,6 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
      * @throws IllegalArgumentException if {@code prefetch} is less than 0.
      */
     public AmqpReceiveLinkProcessor(int prefetch, AmqpRetryPolicy retryPolicy, Disposable parentConnection) {
-        this.timeout = retryPolicy.getRetryOptions().getTryTimeout();
         this.parentConnection = Objects.requireNonNull(parentConnection, "'parentConnection' cannot be null.");
 
         if (prefetch < 0) {

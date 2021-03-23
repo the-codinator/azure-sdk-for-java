@@ -35,7 +35,6 @@ class EventHubPartitionAsyncConsumer implements AutoCloseable {
     private final String consumerGroup;
     private final String partitionId;
     private final boolean trackLastEnqueuedEventProperties;
-    private final Scheduler scheduler;
     private final Flux<PartitionEvent> emitterProcessor;
     private final EventPosition initialPosition;
 
@@ -44,7 +43,7 @@ class EventHubPartitionAsyncConsumer implements AutoCloseable {
     EventHubPartitionAsyncConsumer(AmqpReceiveLinkProcessor amqpReceiveLinkProcessor,
         MessageSerializer messageSerializer, String fullyQualifiedNamespace, String eventHubName, String consumerGroup,
         String partitionId, AtomicReference<Supplier<EventPosition>> currentEventPosition,
-        boolean trackLastEnqueuedEventProperties, Scheduler scheduler) {
+        boolean trackLastEnqueuedEventProperties, int prefetch, Scheduler scheduler) {
         this.initialPosition = Objects.requireNonNull(currentEventPosition.get().get(),
             "'currentEventPosition.get().get()' cannot be null.");
         this.amqpReceiveLinkProcessor = amqpReceiveLinkProcessor;
@@ -54,7 +53,8 @@ class EventHubPartitionAsyncConsumer implements AutoCloseable {
         this.consumerGroup = consumerGroup;
         this.partitionId = partitionId;
         this.trackLastEnqueuedEventProperties = trackLastEnqueuedEventProperties;
-        this.scheduler = Objects.requireNonNull(scheduler, "'scheduler' cannot be null.");
+
+        Objects.requireNonNull(scheduler, "'scheduler' cannot be null.");
 
         if (trackLastEnqueuedEventProperties) {
             lastEnqueuedEventProperties.set(new LastEnqueuedEventProperties(null, null, null, null));
@@ -83,9 +83,7 @@ class EventHubPartitionAsyncConsumer implements AutoCloseable {
                 }
 
                 return event;
-            })
-            .publish()
-            .autoConnect();
+            }).publishOn(scheduler, prefetch);
     }
 
     /**
@@ -111,7 +109,7 @@ class EventHubPartitionAsyncConsumer implements AutoCloseable {
      * @return A stream of events received from the partition.
      */
     Flux<PartitionEvent> receive() {
-        return emitterProcessor.publishOn(scheduler);
+        return emitterProcessor;
     }
 
     /**
