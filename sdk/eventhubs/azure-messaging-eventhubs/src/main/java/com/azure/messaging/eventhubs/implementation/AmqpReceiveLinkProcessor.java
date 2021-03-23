@@ -19,6 +19,7 @@ import reactor.core.Exceptions;
 import reactor.core.publisher.FluxProcessor;
 import reactor.core.publisher.Operators;
 
+import java.time.Duration;
 import java.util.Deque;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -37,20 +38,18 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
     private final AtomicBoolean isTerminated = new AtomicBoolean();
     private final AtomicInteger retryAttempts = new AtomicInteger();
     private final Deque<Message> messageQueue = new ConcurrentLinkedDeque<>();
-    private final AtomicBoolean linkCreditsAdded = new AtomicBoolean();
 
     private final AtomicReference<CoreSubscriber<? super Message>> downstream = new AtomicReference<>();
     private final AtomicInteger wip = new AtomicInteger();
 
     private final int prefetch;
-    private final AmqpRetryPolicy retryPolicy;
     private final Disposable parentConnection;
+    private final Duration timeout;
 
     private volatile Throwable lastError;
     private volatile boolean isCancelled;
     private volatile AmqpReceiveLink currentLink;
     private volatile Disposable currentLinkSubscriptions;
-    private volatile Disposable retrySubscription;
 
     // Opting to use AtomicReferenceFieldUpdater because Project Reactor provides utility methods that calculates
     // backpressure requests, sets the upstream correctly, and reports its state.
@@ -73,7 +72,7 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
      * @throws IllegalArgumentException if {@code prefetch} is less than 0.
      */
     public AmqpReceiveLinkProcessor(int prefetch, AmqpRetryPolicy retryPolicy, Disposable parentConnection) {
-        this.retryPolicy = Objects.requireNonNull(retryPolicy, "'retryPolicy' cannot be null.");
+        this.timeout = retryPolicy.getRetryOptions().getTryTimeout();
         this.parentConnection = Objects.requireNonNull(parentConnection, "'parentConnection' cannot be null.");
 
         if (prefetch < 0) {
@@ -154,17 +153,18 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
 
             currentLink = next;
 
-            // For a new link, add the prefetch as credits.
-            linkCreditsAdded.set(true);
-            next.addCredits(prefetch);
             next.setEmptyCreditListener(this::getCreditsToAdd);
 
             currentLinkSubscriptions = Disposables.composite(
+                // For a new link, add the prefetch as credits.
+                next.getEndpointStates().filter(e -> e == AmqpEndpointState.ACTIVE).next()
+                    .flatMap(active -> next.addCredits(prefetch))
+                    .subscribe(),
                 next.getEndpointStates().subscribe(
                     state -> {
                         // Connection was successfully opened, we can reset the retry interval.
                         if (state == AmqpEndpointState.ACTIVE) {
-                            logger.info("Link {} is now active with {} credits.", linkName, next.getCredits());
+                            logger.info("linkName[{}] credits[{}] is now active.", linkName, next.getCredits());
                             retryAttempts.set(0);
                         }
                     },
@@ -328,13 +328,8 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
         final String linkName = link != null ? link.getLinkName() : "N/A";
         final long requestedBefore = Operators.addCap(REQUESTED, this, request);
 
-        logger.verbose("linkName[{}] requested[{}] requestedBefore[{}]", linkName, request, requestedBefore);
-
-        if (link != null && !linkCreditsAdded.getAndSet(true)) {
-            int credits = getCreditsToAdd();
-            logger.verbose("Link credits not yet added. Adding: {}", credits);
-            link.addCredits(credits);
-        }
+        logger.verbose("linkName[{}] requestedBefore[{}] requested[{}] Added items to request.", linkName, request,
+            requestedBefore);
 
         drain();
     }
@@ -379,10 +374,6 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
     }
 
     private void onDispose() {
-        if (retrySubscription != null && !retrySubscription.isDisposed()) {
-            retrySubscription.dispose();
-        }
-
         if (currentLink != null) {
             currentLink.dispose();
         }
@@ -487,19 +478,16 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
 
     private int getCreditsToAdd() {
         final CoreSubscriber<? super Message> subscriber = downstream.get();
-        final long r = REQUESTED.get(this);
         if (subscriber == null) {
             logger.verbose("Not adding credits. No downstream subscribers.");
-            linkCreditsAdded.set(false);
             return 0;
         }
 
+        final long r = REQUESTED.get(this);
         if (r == 0) {
             logger.verbose("Not adding credits. No items requested.");
             return 0;
         }
-
-        linkCreditsAdded.set(true);
 
         // If there is no back pressure, always add 1. Otherwise, add whatever is requested.
         return r == Long.MAX_VALUE ? 1 : Long.valueOf(r).intValue();

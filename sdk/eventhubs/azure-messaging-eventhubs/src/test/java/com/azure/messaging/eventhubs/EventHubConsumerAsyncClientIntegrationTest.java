@@ -62,7 +62,7 @@ public class EventHubConsumerAsyncClientIntegrationTest extends IntegrationTestB
         builder = createBuilder()
             .shareConnection()
             .consumerGroup(DEFAULT_CONSUMER_GROUP_NAME)
-            .prefetchCount(DEFAULT_PREFETCH_COUNT);
+            .prefetchCount(5);
         partitionIds = EXPECTED_PARTITION_IDS;
     }
 
@@ -123,35 +123,41 @@ public class EventHubConsumerAsyncClientIntegrationTest extends IntegrationTestB
      * are consuming events.
      */
     @Test
-    public void lastEnqueuedInformationIsNotUpdated() {
+    public void lastEnqueuedInformationIsNotUpdated() throws InterruptedException {
         // Arrange
         final String firstPartition = "4";
-        final EventHubConsumerAsyncClient consumer = builder.prefetchCount(1).buildAsyncConsumerClient();
-        final PartitionProperties properties = consumer.getPartitionProperties(firstPartition).block(TIMEOUT);
-        Assertions.assertNotNull(properties);
+        final EventHubConsumerAsyncClient consumer = builder.prefetchCount(5).buildAsyncConsumerClient();
+//        final PartitionProperties properties = consumer.getPartitionProperties(firstPartition).block(TIMEOUT);
+//        Assertions.assertNotNull(properties);
 
-        final EventPosition position = EventPosition.fromSequenceNumber(properties.getLastEnqueuedSequenceNumber());
+//        final EventPosition position = EventPosition.fromSequenceNumber(properties.getLastEnqueuedSequenceNumber());
         final ReceiveOptions options = new ReceiveOptions().setTrackLastEnqueuedEventProperties(false);
 
         final AtomicBoolean isActive = new AtomicBoolean(true);
-        final int expectedNumber = 5;
-        final EventHubProducerAsyncClient producer = builder.buildAsyncProducerClient();
-        final SendOptions sendOptions = new SendOptions().setPartitionId(firstPartition);
-        final Disposable producerEvents = getEvents(isActive)
-            .flatMap(event -> producer.send(event, sendOptions))
-            .subscribe(sent -> logger.info("Event sent."), error -> logger.error("Error sending event", error));
+        final int expectedNumber = 10;
+//        final EventHubProducerAsyncClient producer = builder.buildAsyncProducerClient();
+//        final SendOptions sendOptions = new SendOptions().setPartitionId(firstPartition);
+//        final Disposable producerEvents = getEvents(isActive)
+//            .flatMap(event -> producer.send(event, sendOptions))
+//            .subscribe(sent -> logger.info("Event sent."), error -> logger.error("Error sending event", error));
 
         // Act & Assert
         try {
-            StepVerifier.create(consumer.receiveFromPartition(firstPartition, position, options)
-                .take(expectedNumber))
-                .assertNext(event -> Assertions.assertNull(event.getLastEnqueuedEventProperties(),
-                    "'lastEnqueuedEventProperties' should be null."))
-                .expectNextCount(expectedNumber - 1)
-                .verifyComplete();
+            consumer.receiveFromPartition(firstPartition, EventPosition.earliest(), options).subscribe(e -> {
+                System.out.printf("Data: %s%n", e.getData().getSequenceNumber());
+            });
+
+            TimeUnit.MINUTES.sleep(5);
+//
+//            StepVerifier.create(consumer.receiveFromPartition(firstPartition, position, options)
+//                .take(expectedNumber))
+//                .assertNext(event -> Assertions.assertNull(event.getLastEnqueuedEventProperties(),
+//                    "'lastEnqueuedEventProperties' should be null."))
+//                .expectNextCount(expectedNumber - 1)
+//                .verifyComplete();
         } finally {
             isActive.set(false);
-            producerEvents.dispose();
+//            producerEvents.dispose();
             consumer.close();
         }
     }
