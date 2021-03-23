@@ -61,7 +61,9 @@ public class ReactorReceiver implements AmqpReceiveLink {
         this.tokenManager = tokenManager;
         this.dispatcher = dispatcher;
         this.messagesProcessor = this.handler.getDeliveredMessages()
-            .map(this::decodeDelivery)
+            .flatMap(delivery -> {
+                this::decodeDelivery
+            })
             .doOnNext(next -> {
                 if (receiver.getRemoteCredit() == 0 && !isDisposed.get()) {
                     final Supplier<Integer> supplier = creditSupplier.get();
@@ -71,7 +73,7 @@ public class ReactorReceiver implements AmqpReceiveLink {
 
                     final Integer credits = supplier.get();
                     if (credits != null && credits > 0) {
-                        addCredits(credits);
+                        addCredits(credits).subscribe();
                     }
                 }
             })
