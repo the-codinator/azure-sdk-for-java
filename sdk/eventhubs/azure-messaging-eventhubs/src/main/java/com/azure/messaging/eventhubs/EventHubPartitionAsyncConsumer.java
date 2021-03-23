@@ -12,9 +12,7 @@ import com.azure.messaging.eventhubs.models.PartitionContext;
 import com.azure.messaging.eventhubs.models.PartitionEvent;
 import com.azure.messaging.eventhubs.models.ReceiveOptions;
 import org.apache.qpid.proton.message.Message;
-import reactor.core.publisher.EmitterProcessor;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Scheduler;
 
 import java.util.Objects;
@@ -113,7 +111,7 @@ class EventHubPartitionAsyncConsumer implements AutoCloseable {
      * @return A stream of events received from the partition.
      */
     Flux<PartitionEvent> receive() {
-        return emitterProcessor.subscribeOn(scheduler);
+        return emitterProcessor.publishOn(scheduler);
     }
 
     /**
