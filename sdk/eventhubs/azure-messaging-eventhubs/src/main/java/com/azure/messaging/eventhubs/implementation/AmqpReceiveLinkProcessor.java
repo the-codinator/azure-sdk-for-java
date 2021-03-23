@@ -324,13 +324,7 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
             return;
         }
 
-        final AmqpReceiveLink link = currentLink;
-        final String linkName = link != null ? link.getLinkName() : "N/A";
-        final long requestedBefore = Operators.addCap(REQUESTED, this, request);
-
-        logger.verbose("linkName[{}] requestedBefore[{}] requested[{}] Added items to request.", linkName, request,
-            requestedBefore);
-
+        Operators.addCap(REQUESTED, this, request);
         drain();
     }
 
@@ -408,9 +402,6 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
             return;
         }
 
-        final AmqpReceiveLink link = currentLink;
-        final String linkName = link != null ? link.getLinkName() : "N/A";
-
         long numberRequested = requested;
         boolean isEmpty = messageQueue.isEmpty();
         while (numberRequested != 0L && !isEmpty) {
@@ -449,9 +440,6 @@ public class AmqpReceiveLinkProcessor extends FluxProcessor<AmqpReceiveLink, Mes
 
             if (requested != Long.MAX_VALUE) {
                 numberRequested = REQUESTED.addAndGet(this, -numberEmitted);
-
-                logger.verbose("linkName[{}] numberEmitted[{}] numberRequested[{}]", linkName, numberEmitted,
-                    numberRequested);
             }
         }
     }
