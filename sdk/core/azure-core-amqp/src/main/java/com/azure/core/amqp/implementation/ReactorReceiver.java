@@ -62,21 +62,33 @@ public class ReactorReceiver implements AmqpReceiveLink {
         this.dispatcher = dispatcher;
         this.messagesProcessor = this.handler.getDeliveredMessages()
             .flatMap(delivery -> {
-                this::decodeDelivery
-            })
-            .doOnNext(next -> {
-                if (receiver.getRemoteCredit() == 0 && !isDisposed.get()) {
-                    final Supplier<Integer> supplier = creditSupplier.get();
-                    if (supplier == null) {
-                        return;
-                    }
+                return Mono.<Message>create(sink -> {
+                    try {
+                        this.dispatcher.invoke(() -> {
+                            final Message message = decodeDelivery(delivery);
+                            final int creditsLeft = receiver.getRemoteCredit();
 
-                    final Integer credits = supplier.get();
-                    if (credits != null && credits > 0) {
-                        addCredits(credits).subscribe();
+                            if (creditsLeft > 0) {
+                                sink.success(message);
+                                return;
+                            }
+
+                            final Supplier<Integer> supplier = creditSupplier.get();
+                            final Integer credits = supplier.get();
+                            logger.verbose("linkName[{}] creditsLeft[{}] adding[{}]", getLinkName(), creditsLeft,
+                                credits);
+
+                            if (credits != null && credits > 0) {
+                                receiver.flow(credits);
+                            }
+
+                            sink.success(message);
+                        });
+                    } catch (IOException e) {
+                        sink.error(e);
                     }
-                }
-            })
+                });
+            }, 1)
             .publish()
             .autoConnect();
 
@@ -174,7 +186,7 @@ public class ReactorReceiver implements AmqpReceiveLink {
 
     @Override
     public String getLinkName() {
-        return receiver.getName();
+        return handler.getLinkName();
     }
 
     @Override
